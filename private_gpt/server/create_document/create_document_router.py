@@ -2,9 +2,10 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from private_gpt.server.chat.chat_service import ChatService
 from llama_index.llms import ChatMessage, ChatResponse, MessageRole
+import itertools
 
 create_document_router = APIRouter(prefix="/v1")
-
+SOURCES_SEPARATOR = "\n\n Sources: \n"
 
 def get_chat_responses(service: ChatService, messages: list[ChatMessage]) -> str:
 
@@ -22,18 +23,40 @@ def get_chat_responses(service: ChatService, messages: list[ChatMessage]) -> str
     return full_response
 
 
-def process_prompts(service: ChatService, prompts: list[str]) -> dict:
+def process_prompts_with_history(service: ChatService, prompts: list[str], history: list[list[str]]) -> dict:
+    # Process a list of prompts and get responses for each prompt, considering the history.
 
-    #Process a list of prompts and get responses for each prompt.
-    
     prompt_responses = {}
+    history_messages = build_history(history)
 
     for idx, prompt in enumerate(prompts):
-        all_messages = [ChatMessage(content=prompt, role=MessageRole.USER)]
+        all_messages = history_messages + [ChatMessage(content=prompt, role=MessageRole.USER)]
         response = get_chat_responses(service, all_messages)
         prompt_responses[f"Prompt_{idx + 1}"] = response
 
     return prompt_responses
+
+
+def build_history(history: list[list[str]]) -> list[ChatMessage]:
+    # Build a history of messages based on the provided history list.
+    history_messages: list[ChatMessage] = list(
+        itertools.chain(
+            *[
+                [
+                    ChatMessage(content=interaction[0], role=MessageRole.USER),
+                    ChatMessage(
+                        # Remove from history content the Sources information
+                        content=interaction[1].split(SOURCES_SEPARATOR)[0],
+                        role=MessageRole.ASSISTANT,
+                    ),
+                ]
+                for interaction in history
+            ]
+        )
+    )
+
+    # Max 20 messages to try to avoid context overflow
+    return history_messages[:20]
 
 
 @create_document_router.post("/prompt-responses", response_model=list[dict])
@@ -48,7 +71,7 @@ async def get_prompt_responses(request: Request) -> JSONResponse:
         Keep the tone academic, technical and report writing format, highlighting the core technology. Use the first person voice and assume you are the team.
         """,
         """
-        write an account of the work done, use an academic tone with MAXIMUM 700 WORDs, with a focus on highlighting the technology
+        write an account of the work done, use an academic tone with mandorory 700 WORDs, with a focus on highlighting the technology
         break the work done down into a minimal number of paragraphs, where each paragraph demonstrates this cycle of work: hypotheses -> experimentation -> result
         """,
         """ 
@@ -57,9 +80,12 @@ async def get_prompt_responses(request: Request) -> JSONResponse:
         """,
     ]
 
+    history = [
+    ]
+
     try:
         service = request.state.injector.get(ChatService)
-        prompt_responses = process_prompts(service, prompts)
+        prompt_responses = process_prompts_with_history(service, prompts, history)
         return JSONResponse(content=prompt_responses)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
