@@ -16,6 +16,7 @@ from private_gpt.server.health.health_router import health_router
 from private_gpt.server.ingest.ingest_router import ingest_router
 from private_gpt.settings.settings import Settings
 from private_gpt.server.create_document.create_document_router import create_document_router
+from private_gpt.server.custome_completion.custome_completion import custome_completions_router
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ def create_app(root_injector: Injector) -> FastAPI:
         app.include_router(embeddings_router)
         app.include_router(health_router)
         app.include_router(create_document_router)
+        app.include_router(custome_completions_router)
 
         settings = root_injector.get(Settings)
         if settings.server.cors.enabled:
